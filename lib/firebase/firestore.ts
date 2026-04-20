@@ -337,17 +337,10 @@ export async function submitFeedback(input: {
   const draftRef = doc(db, "drafts", input.draftId);
 
   await runTransaction(db, async (transaction) => {
-    const [draftSnapshot, feedbackSnapshot] = await Promise.all([
-      transaction.get(draftRef),
-      transaction.get(feedbackRef),
-    ]);
+    const draftSnapshot = await transaction.get(draftRef);
 
     if (!draftSnapshot.exists()) {
       throw new Error("Draft not found for feedback.");
-    }
-
-    if (feedbackSnapshot.exists()) {
-      throw new Error("Feedback was already submitted from this invite session.");
     }
 
     transaction.set(feedbackRef, {
