@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function draftAuthorId(draftId) {
+      return get(/databases/$(database)/documents/drafts/$(draftId)).data.authorId;
+    }
+
+    function isDraftOwner(draftId) {
+      return isSignedIn() && draftAuthorId(draftId) == request.auth.uid;
+    }
+
+    function isDraftCounterOnlyUpdate() {
+      return request.resource.data.authorId == resource.data.authorId &&
+        request.resource.data.title == resource.data.title &&
+        request.resource.data.content == resource.data.content &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["viewCount", "updatedAt"]) &&
+        request.resource.data.viewCount == resource.data.viewCount + 1;
+    }
+
+    function isDraftFeedbackCounterUpdate() {
+      return request.resource.data.authorId == resource.data.authorId &&
+        request.resource.data.title == resource.data.title &&
+        request.resource.data.content == resource.data.content &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["feedbackCount", "updatedAt"]) &&
+        request.resource.data.feedbackCount == resource.data.feedbackCount + 1;
+    }
+
+    function isInviteConsumptionUpdate() {
+      return request.resource.data.draftId == resource.data.draftId &&
+        request.resource.data.creatorId == resource.data.creatorId &&
+        request.resource.data.maxUses == resource.data.maxUses &&
+        request.resource.data.expiresAt == resource.data.expiresAt &&
+        request.resource.data.isActive == resource.data.isActive &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["usedCount"]) &&
+        request.resource.data.usedCount == resource.data.usedCount + 1;
+    }
+
+    match /users/{userId} {
+      allow create: if isOwner(userId);
+      allow read, update: if isOwner(userId);
+      allow delete: if false;
+    }
+
+    match /drafts/{draftId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.authorId == request.auth.uid;
+      allow read: if true;
+      allow update: if (isSignedIn() &&
+        resource.data.authorId == request.auth.uid &&
+        request.resource.data.authorId == resource.data.authorId) ||
+        isDraftCounterOnlyUpdate() ||
+        isDraftFeedbackCounterUpdate();
+      allow delete: if isSignedIn() &&
+        resource.data.authorId == request.auth.uid;
+    }
+
+    match /invites/{inviteId} {
+      allow create: if isSignedIn() &&
+        request.resource.data.creatorId == request.auth.uid;
+      allow read: if true;
+      allow update: if (isSignedIn() &&
+        resource.data.creatorId == request.auth.uid &&
+        request.resource.data.creatorId == resource.data.creatorId &&
+        request.resource.data.draftId == resource.data.draftId) ||
+        isInviteConsumptionUpdate();
+      allow delete: if isSignedIn() &&
+        resource.data.creatorId == request.auth.uid;
+    }
+
+    match /feedbacks/{feedbackId} {
+      allow create: if request.resource.data.draftId is string &&
+        request.resource.data.inviteId is string &&
+        request.resource.data.reviewerId is string &&
+        request.resource.data.nickname is string &&
+        request.resource.data.comment is string &&
+        request.resource.data.tags is list &&
+        request.resource.data.tags.size() <= 4;
+      allow read: if isDraftOwner(resource.data.draftId);
+      allow update, delete: if false;
+    }
+  }
+}
