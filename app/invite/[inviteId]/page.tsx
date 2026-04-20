@@ -11,6 +11,7 @@ import {
   getPublicDraftById,
   submitFeedback,
 } from "@/lib/firebase/firestore";
+import { renderDraftContent } from "@/lib/rich-text";
 import type { Draft, FeedbackTag, Invite } from "@/lib/types";
 
 type InviteState = "loading" | "ready" | "invalid" | "submitted";
@@ -211,9 +212,12 @@ export default function InvitePage() {
         <p className="mt-2 subtle">
           Read first, then leave a few lightweight reactions for the writer.
         </p>
-        <article className="mt-5 whitespace-pre-wrap leading-7 text-slate-700">
-          {draft.content}
-        </article>
+        <article
+          className="draft-content mt-5 text-slate-700"
+          dangerouslySetInnerHTML={{
+            __html: renderDraftContent(draft.content),
+          }}
+        />
       </section>
 
       <section className="card mt-6 p-5">

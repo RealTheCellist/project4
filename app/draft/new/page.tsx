@@ -4,8 +4,10 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { RichDraftEditor } from "@/components/rich-draft-editor";
 import { useAuth } from "@/lib/auth-context";
 import { createDraft } from "@/lib/firebase/firestore";
+import { sanitizeRichHtml } from "@/lib/rich-text";
 
 export default function NewDraftPage() {
   const { user } = useAuth();
@@ -29,7 +31,7 @@ export default function NewDraftPage() {
       const draftId = await createDraft({
         authorId: user.uid,
         title,
-        content,
+        content: sanitizeRichHtml(content),
       });
 
       router.replace(`/draft/${draftId}`);
@@ -46,10 +48,10 @@ export default function NewDraftPage() {
 
   return (
     <AuthGuard>
-      <main className="container-mobile">
+      <main className="mx-auto w-full max-w-5xl px-4 pb-8 pt-5 sm:px-6">
         <DashboardHeader />
 
-        <section className="card-soft mt-6 p-5">
+        <section className="card-soft mt-6 p-5 sm:p-6">
           <div className="stack-sm">
             <div className="eyebrow w-fit">
               <span className="h-2 w-2 rounded-full bg-[var(--accent)]" />
@@ -80,16 +82,10 @@ export default function NewDraftPage() {
               <label className="label" htmlFor="content">
                 Content
               </label>
-              <textarea
-                id="content"
-                className="input min-h-64 resize-y"
-                placeholder="Write the version you want a few trusted people to read."
-                value={content}
-                onChange={(event) => setContent(event.target.value)}
-                required
-              />
+              <RichDraftEditor value={content} onChange={setContent} />
               <p className="mt-2 text-sm subtle">
-                Tip: shorter drafts usually get better responses on mobile.
+                Use the toolbar above the writing area to shape tone, size, color,
+                and rhythm before you share the draft.
               </p>
             </div>
 
@@ -99,11 +95,28 @@ export default function NewDraftPage() {
               </p>
             ) : null}
 
-            <button className="btn-primary" disabled={submitting} type="submit">
-              {submitting ? "Saving..." : "Save draft"}
-            </button>
           </form>
         </section>
+
+        <div className="draft-save-bar">
+          <div className="draft-save-meta">
+            <span className="draft-save-dot" />
+            Ready to keep this draft
+          </div>
+          <button
+            className="draft-save-button"
+            disabled={submitting}
+            type="button"
+            onClick={() => {
+              const form = document.querySelector("form");
+              if (form) {
+                form.requestSubmit();
+              }
+            }}
+          >
+            {submitting ? "Saving..." : "Save Draft"}
+          </button>
+        </div>
       </main>
     </AuthGuard>
   );

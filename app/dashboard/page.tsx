@@ -57,9 +57,14 @@ export default function DashboardPage() {
                 {user?.email} · {format(new Date(), "yyyy.MM.dd")}
               </p>
             </div>
-            <Link className="btn-primary !w-auto px-5" href="/draft/new">
-              New draft
-            </Link>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Link className="btn-secondary !w-auto px-5" href="/invite/new">
+                Create invite
+              </Link>
+              <Link className="btn-primary !w-auto px-5" href="/draft/new">
+                New draft
+              </Link>
+            </div>
           </div>
         </section>
 

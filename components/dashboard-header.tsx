@@ -23,6 +23,9 @@ export function DashboardHeader() {
         </div>
       </Link>
       <div className="flex items-center gap-2">
+        <Link className="btn-secondary !w-auto px-4" href="/invite/new">
+          Create invite
+        </Link>
         <div className="hidden rounded-full bg-white px-3 py-2 text-xs text-slate-500 shadow-sm sm:block">
           {user?.email}
         </div>

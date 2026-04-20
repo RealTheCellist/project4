@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { addDays, format } from "date-fns";
+import { format } from "date-fns";
 import { AuthGuard } from "@/components/auth-guard";
 import { DashboardHeader } from "@/components/dashboard-header";
+import { RichDraftEditor } from "@/components/rich-draft-editor";
 import { useAuth } from "@/lib/auth-context";
 import {
-  createInvite,
   getDraftById,
   getInvitesByDraftId,
+  updateDraft,
 } from "@/lib/firebase/firestore";
+import { renderDraftContent, sanitizeRichHtml } from "@/lib/rich-text";
 import type { Draft, Invite } from "@/lib/types";
 
 export default function DraftDetailPage() {
@@ -22,12 +24,10 @@ export default function DraftDetailPage() {
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [maxUses, setMaxUses] = useState("10");
-  const [expiresAt, setExpiresAt] = useState(
-    format(addDays(new Date(), 7), "yyyy-MM-dd"),
-  );
-  const [createdLink, setCreatedLink] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     const loadDraft = async () => {
@@ -47,6 +47,8 @@ export default function DraftDetailPage() {
           setDraft(null);
         } else {
           setDraft(loadedDraft);
+          setEditTitle(loadedDraft.title);
+          setEditContent(loadedDraft.content);
           setInvites(loadedInvites);
         }
       } catch (loadError) {
@@ -63,50 +65,65 @@ export default function DraftDetailPage() {
     void loadDraft();
   }, [draftId, user]);
 
-  const publicBaseUrl = useMemo(() => {
-    if (typeof window === "undefined") {
-      return "";
-    }
-
-    return window.location.origin;
-  }, []);
-
-  const handleCreateInvite = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSaveEdit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!user || !draft) {
+    if (!draft) {
       return;
     }
 
-    setSubmitting(true);
+    setSavingEdit(true);
     setError("");
-    setCreatedLink("");
 
     try {
-      const inviteId = await createInvite({
-        draftId: draft.id,
-        creatorId: user.uid,
-        expiresAtIso: new Date(`${expiresAt}T23:59:59`).toISOString(),
-        maxUses: Number(maxUses),
+      await updateDraft(draft.id, {
+        title: editTitle,
+        content: sanitizeRichHtml(editContent),
       });
 
-      const refreshInvites = await getInvitesByDraftId(draft.id);
-      setInvites(refreshInvites);
-      setCreatedLink(`${publicBaseUrl}/invite/${inviteId}`);
-    } catch (submitError) {
+      const refreshedDraft = await getDraftById(draft.id);
+
+      if (refreshedDraft) {
+        setDraft(refreshedDraft);
+        setEditTitle(refreshedDraft.title);
+        setEditContent(refreshedDraft.content);
+      }
+
+      setEditing(false);
+    } catch (saveError) {
       setError(
-        submitError instanceof Error
-          ? submitError.message
-          : "Could not create the invite link.",
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save the updated draft.",
       );
     } finally {
-      setSubmitting(false);
+      setSavingEdit(false);
     }
+  };
+
+  const startEditing = () => {
+    if (!draft) {
+      return;
+    }
+
+    setEditTitle(draft.title);
+    setEditContent(draft.content);
+    setEditing(true);
+  };
+
+  const cancelEditing = () => {
+    if (!draft) {
+      return;
+    }
+
+    setEditTitle(draft.title);
+    setEditContent(draft.content);
+    setEditing(false);
   };
 
   return (
     <AuthGuard>
-      <main className="container-mobile">
+      <main className="mx-auto w-full max-w-5xl px-4 pb-8 pt-5 sm:px-6">
         <DashboardHeader />
 
         {loading ? (
@@ -132,115 +149,141 @@ export default function DraftDetailPage() {
                     Draft
                   </p>
                   <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-                    {draft.title}
+                    {editing ? "Edit your draft" : draft.title}
                   </h1>
                 </div>
-                <Link
-                  className="btn-secondary !w-auto px-4"
-                  href={`/draft/${draft.id}/feedback`}
-                >
-                  View feedback
-                </Link>
-              </div>
-
-              <div className="mt-5 grid grid-cols-2 gap-3">
-                <div className="metric-card">
-                  <p className="text-sm font-semibold text-[var(--accent)]">Views</p>
-                  <p className="metric-value">{draft.viewCount}</p>
-                </div>
-                <div className="metric-card">
-                  <p className="text-sm font-semibold text-[var(--accent)]">
-                    Feedback
-                  </p>
-                  <p className="metric-value">{draft.feedbackCount}</p>
-                </div>
-              </div>
-
-              <article className="mt-5 whitespace-pre-wrap leading-7 text-slate-700">
-                {draft.content}
-              </article>
-            </section>
-
-            <section className="card mt-6 p-5">
-              <div className="stack-sm">
-                <h2 className="section-title">Create an invite</h2>
-                <p className="section-copy">
-                  Set a usage limit and expiration date, then share the generated
-                  link with your small audience.
-                </p>
-              </div>
-
-              <form className="mt-5 stack-md" onSubmit={handleCreateInvite}>
-                <div>
-                  <label className="label" htmlFor="maxUses">
-                    Max uses
-                  </label>
-                  <input
-                    id="maxUses"
-                    className="input"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={maxUses}
-                    onChange={(event) => setMaxUses(event.target.value)}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="label" htmlFor="expiresAt">
-                    Expires on
-                  </label>
-                  <input
-                    id="expiresAt"
-                    className="input"
-                    type="date"
-                    value={expiresAt}
-                    onChange={(event) => setExpiresAt(event.target.value)}
-                    required
-                  />
-                </div>
-
-                <button className="btn-primary" disabled={submitting} type="submit">
-                  {submitting ? "Creating..." : "Generate invite link"}
-                </button>
-              </form>
-
-              {createdLink ? (
-                <div className="mt-5 rounded-3xl bg-[var(--accent-soft)] p-4">
-                  <p className="text-sm font-semibold text-[var(--accent)]">
-                    Link created
-                  </p>
-                  <p className="mt-2 break-all text-sm leading-6 text-slate-700">
-                    {createdLink}
-                  </p>
-                </div>
-              ) : null}
-            </section>
-
-            <section className="card mt-6 p-5">
-              <h2 className="section-title">Recent invites</h2>
-              <div className="mt-4 stack-sm">
-                {invites.length === 0 ? (
-                  <p className="subtle">No invite links created yet.</p>
-                ) : (
-                  invites.map((invite) => (
-                    <div
-                      key={invite.id}
-                      className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-4"
+                {!editing ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Link
+                      className="btn-secondary !w-auto px-4"
+                      href={`/invite/new?draftId=${draft.id}`}
                     >
-                      <p className="text-sm font-semibold text-slate-900">
-                        /invite/{invite.id}
-                      </p>
-                      <p className="mt-2 text-sm subtle">
-                        Used {invite.usedCount}/{invite.maxUses} · Expires{" "}
-                        {format(invite.expiresAt.toDate(), "yyyy.MM.dd HH:mm")}
-                      </p>
-                    </div>
-                  ))
+                      Create invite
+                    </Link>
+                    <button
+                      className="btn-secondary !w-auto px-4"
+                      type="button"
+                      onClick={startEditing}
+                    >
+                      Edit draft
+                    </button>
+                    <Link
+                      className="btn-secondary !w-auto px-4"
+                      href={`/draft/${draft.id}/feedback`}
+                    >
+                      View feedback
+                    </Link>
+                  </div>
+                ) : (
+                  <button
+                    className="btn-secondary !w-auto px-4"
+                    type="button"
+                    onClick={cancelEditing}
+                  >
+                    Cancel edit
+                  </button>
                 )}
               </div>
+
+              {editing ? (
+                <form className="mt-5 stack-md" onSubmit={handleSaveEdit}>
+                  <div>
+                    <label className="label" htmlFor="edit-title">
+                      Title
+                    </label>
+                    <input
+                      id="edit-title"
+                      className="input"
+                      value={editTitle}
+                      onChange={(event) => setEditTitle(event.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="label" htmlFor="edit-content">
+                      Content
+                    </label>
+                    <RichDraftEditor value={editContent} onChange={setEditContent} />
+                  </div>
+
+                  <div className="flex justify-end">
+                    <button
+                      className="draft-save-button"
+                      disabled={savingEdit}
+                      type="submit"
+                    >
+                      {savingEdit ? "Saving..." : "Update Draft"}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <article
+                  className="draft-content mt-5 text-slate-700"
+                  dangerouslySetInnerHTML={{
+                    __html: renderDraftContent(draft.content),
+                  }}
+                />
+              )}
             </section>
+
+            {!editing ? (
+              <>
+                <section className="card mt-6 p-5">
+                  <div className="mt-0 grid grid-cols-2 gap-3">
+                    <div className="metric-card">
+                      <p className="text-sm font-semibold text-[var(--accent)]">Views</p>
+                      <p className="metric-value">{draft.viewCount}</p>
+                    </div>
+                    <div className="metric-card">
+                      <p className="text-sm font-semibold text-[var(--accent)]">
+                        Feedback
+                      </p>
+                      <p className="metric-value">{draft.feedbackCount}</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="card mt-6 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="section-title">Recent invites</h2>
+                      <p className="mt-2 section-copy">
+                        Create new ones from the invite menu and keep track of the
+                        links already sent out for this draft.
+                      </p>
+                    </div>
+                    <Link
+                      className="btn-secondary !w-auto px-4"
+                      href={`/invite/new?draftId=${draft.id}`}
+                    >
+                      New invite
+                    </Link>
+                  </div>
+
+                  <div className="mt-4 stack-sm">
+                    {invites.length === 0 ? (
+                      <p className="subtle">No invite links created yet.</p>
+                    ) : (
+                      invites.map((invite) => (
+                        <div
+                          key={invite.id}
+                          className="rounded-3xl border border-[var(--border)] bg-[var(--surface)] p-4"
+                        >
+                          <p className="text-sm font-semibold text-slate-900">
+                            /invite/{invite.id}
+                          </p>
+                          <p className="mt-2 text-sm subtle">
+                            Used {invite.usedCount}/{invite.maxUses} 쨌 Expires{" "}
+                            {format(invite.expiresAt.toDate(), "yyyy.MM.dd HH:mm")}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+              </>
+            ) : null}
           </>
         ) : null}
       </main>
